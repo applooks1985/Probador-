@@ -28,7 +28,7 @@ const $=s=>document.querySelector(s),esc=s=>String(s||'').replace(/[&<>"]/g,c=>(
 function shrink(f,max,cb){const r=new FileReader();r.onload=()=>{const i=new Image();i.onload=()=>{const k=Math.min(1,max/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);cb(c.toDataURL('image/jpeg',.85))};i.src=r.result};r.readAsDataURL(f)}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{S.tab=b.dataset.t;render()});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms)),EMPTY={name:'',brand:'',price:'',img:'',url:'',msg:''};
-async function parse(r){const t=await r.text();try{return JSON.parse(t)}catch(e){throw new Error('El servidor devolvió un error ('+r.status+'). Comprueba que el archivo está dentro de la carpeta api en GitHub.')}}
+async function parse(r){const t=await r.text();try{return JSON.parse(t)}catch(e){throw new Error('El servidor devolvió un error ('+r.status+'): '+t.slice(0,90))}}
 const jf=async(u,o)=>parse(await fetch(u,o));
 function guessCat(n){const t=(n||'').toLowerCase();if(/vestido|\bmono\b|dress|jumpsuit|peto/.test(t))return'dresses';if(/pantal|vaquer|jean|short|bermuda|falda|chino|jogger|legging|trouser|pants|skirt|cargo|denim/.test(t))return'lower_body';return'upper_body'}
 function addItem(o){const id=Date.now();S.items.unshift({id,name:o.name||'Prenda',brand:o.brand||'',price:+o.price||0,img:o.img||'',url:o.url||'',cat:['upper_body','lower_body','dresses'].includes(o.cat)?o.cat:guessCat(o.name)});save();return id}
@@ -48,6 +48,25 @@ async function fromShot(file){form.msg='Leyendo captura…';render();
   const v=JSON.parse(m[0]);const id=addItem({name:v.name,brand:v.brand,price:v.price,img:d,cat:v.category});form={...EMPTY};render();await tryon(id)}
  catch(e){form.msg=e.message;render()}}
 function pad34(src){return new Promise(res=>{const i=new Image();i.onload=()=>{const W=768,H=1024,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');const k=Math.max(W/i.width,H/i.height);x.filter='blur(25px)';x.drawImage(i,(W-i.width*k)/2,(H-i.height*k)/2,i.width*k,i.height*k);x.filter='none';const f=Math.min(W/i.width,H/i.height),w=i.width*f,h=i.height*f;x.drawImage(i,(W-w)/2,(H-h)/2,w,h);res({data:c.toDataURL('image/jpeg',.92),ar:i.width/i.height})};i.src=src})}
+async function runStep(person,it){
+ const r=await fetch('/api/tryon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({person,garment:it.img,name:it.name,category:it.cat||'upper_body'})});
+ const j=await parse(r);if(j.error)throw new Error(j.error);
+ for(let n=0;n<60;n++){await sleep(3000);const s=await jf('/api/tryon?id='+j.id);
+  if(s.status==='succeeded')return [].concat(s.output)[0];
+  if(s.status==='failed'||s.status==='canceled')throw new Error(s.error||'La IA no pudo generar la imagen')}
+ throw new Error('Tardó demasiado')}
+async function tryLook(){
+ if(!S.photo){alert('Sube primero tu foto');S.tab='foto';return render()}
+ const L=S.look||(S.look={sel:[]}),ord={dresses:0,lower_body:1,upper_body:2};
+ const its=L.sel.map(id=>S.items.find(x=>x.id==id)).filter(x=>x&&x.img).sort((a,b)=>ord[a.cat]-ord[b.cat]);
+ if(!its.length)return;
+ try{const pp=await pad34(S.photo);L.ar=pp.ar;let cur=pp.data;
+  for(let k=0;k<its.length;k++){L.busy='Prenda '+(k+1)+' de '+its.length+': '+its[k].name+'…';render();cur=await runStep(cur,its[k])}
+  L.result=cur}
+ catch(e){alert(e.message)}
+ L.busy=null;save();render()}
+function lookCard(){const L=S.look||{sel:[]},its=L.sel.map(id=>S.items.find(x=>x.id==id)).filter(Boolean);if(!its.length)return'';
+ return `<div class="card" style="border-color:var(--ac)"><b>Mi look · ${its.length} prenda${its.length>1?'s':''} · ${its.reduce((t,i)=>t+i.price,0).toFixed(2)} €</b><button class="btn" style="margin-top:8px;width:100%" id="lk" ${L.busy?'disabled':''}>${L.busy||(L.result?'Volver a probar el look':'Probar el look')}</button>${L.result?`<div class="res" style="aspect-ratio:${L.ar||0.75};overflow:hidden"><img src="${esc(L.result)}" style="width:100%;height:100%;object-fit:cover;display:block"></div>`:''}</div>`}
 async function tryon(id){const it=S.items.find(x=>x.id==id);
  if(!S.photo){alert('Sube primero tu foto');S.tab='foto';return render()}
  if(!it.img){alert('Esta prenda necesita imagen');return}
@@ -75,9 +94,11 @@ $('#rd').onclick=()=>$('#u').value.trim()&&extract($('#u').value.trim());
 const keep=()=>{form.name=$('#n').value;form.brand=$('#b').value;form.price=$('#p').value;form.url=$('#u').value};
 $('#gf').onchange=e=>{keep();e.target.files[0]&&shrink(e.target.files[0],800,d=>{form.img=d;render()})};
 $('#add').onclick=()=>{keep();if(!form.name)return $('#n').focus();S.items.unshift({id:Date.now(),name:form.name,brand:form.brand,price:+form.price||0,img:form.img,url:form.url,cat:$('#c').value});form={...EMPTY};save();render()};
-$('#ls').innerHTML=S.items.map(i=>`<div class="card"><div class="row">${i.img?`<img class="th" src="${esc(i.img)}" onerror="this.style.display='none'">`:''}<div style="flex:1"><b>${esc(i.name)}</b><div class="mut">${esc(i.brand)} · ${i.price.toFixed(2)} €</div>${i.url?`<a class="mut" href="${esc(i.url)}" target="_blank" rel="noopener">Ver en tienda</a>`:''}</div><button class="btn g" data-d="${i.id}">✕</button></div>
-<select data-c="${i.id}" style="margin:8px 0 0"><option value="upper_body"${i.cat=='upper_body'?' selected':''}>Parte de arriba</option><option value="lower_body"${i.cat=='lower_body'?' selected':''}>Parte de abajo</option><option value="dresses"${i.cat=='dresses'?' selected':''}>Vestido / conjunto</option></select>
+$('#ls').innerHTML=lookCard()+S.items.map(i=>`<div class="card"><div class="row">${i.img?`<img class="th" src="${esc(i.img)}" onerror="this.style.display='none'">`:''}<div style="flex:1"><b>${esc(i.name)}</b><div class="mut">${esc(i.brand)} · ${i.price.toFixed(2)} €</div>${i.url?`<a class="mut" href="${esc(i.url)}" target="_blank" rel="noopener">Ver en tienda</a>`:''}</div><button class="btn g" data-d="${i.id}">✕</button></div>
+<label class="mut" style="display:block;margin-top:8px"><input type="checkbox" data-k="${i.id}" ${(S.look&&S.look.sel.includes(i.id))?'checked':''}> Añadir al look</label><select data-c="${i.id}" style="margin:8px 0 0"><option value="upper_body"${i.cat=='upper_body'?' selected':''}>Parte de arriba</option><option value="lower_body"${i.cat=='lower_body'?' selected':''}>Parte de abajo</option><option value="dresses"${i.cat=='dresses'?' selected':''}>Vestido / conjunto</option></select>
 <button class="btn" style="margin-top:8px;width:100%" data-t="${i.id}" ${i.busy?'disabled':''}>${i.busy||(i.result?'Volver a probar con IA':'Probar con IA')}</button>${i.result?`<div class="res" style="aspect-ratio:${i.ar||0.75};overflow:hidden"><img src="${esc(i.result)}" style="width:100%;height:100%;object-fit:cover;display:block"></div>`:''}</div>`).join('')||'<p class="mut">Aún no hay prendas.</p>';
+if($('#lk'))$('#lk').onclick=tryLook;
+document.querySelectorAll('[data-k]').forEach(c=>c.onchange=()=>{const L=S.look||(S.look={sel:[]}),id=+c.dataset.k;L.sel=c.checked?[...L.sel,id]:L.sel.filter(x=>x!=id);L.result=null;save();render()});
 document.querySelectorAll('[data-c]').forEach(e=>e.onchange=()=>{S.items.find(x=>x.id==e.dataset.c).cat=e.value;save()});
 document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{S.items=S.items.filter(x=>x.id!=b.dataset.d);save();render()});
 document.querySelectorAll('[data-t]').forEach(b=>{if(b.dataset.t&&b.tagName==='BUTTON'&&b.classList.contains('btn')&&b.style.width)b.onclick=()=>tryon(b.dataset.t)});

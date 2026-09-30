@@ -33,11 +33,12 @@ async function extract(u){form.url=u;form.msg='Leyendo enlace…';render();
   form.name=j.name||'';form.brand=j.brand||'';form.price=j.price||'';form.img=j.image||'';
   form.msg=j.ok?'Datos leídos. Revísalos y pulsa Añadir.':'No pude leer datos de esta tienda. Rellénalos a mano.'}
  catch(e){form.msg=e.message}render()}
+function pad34(src){return new Promise(res=>{const i=new Image();i.onload=()=>{const W=768,H=1024,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');const k=Math.max(W/i.width,H/i.height);x.filter='blur(25px)';x.drawImage(i,(W-i.width*k)/2,(H-i.height*k)/2,i.width*k,i.height*k);x.filter='none';const f=Math.min(W/i.width,H/i.height),w=i.width*f,h=i.height*f;x.drawImage(i,(W-w)/2,(H-h)/2,w,h);res({data:c.toDataURL('image/jpeg',.92),ar:i.width/i.height})};i.src=src})}
 async function tryon(id){const it=S.items.find(x=>x.id==id);
  if(!S.photo){alert('Sube primero tu foto');S.tab='foto';return render()}
  if(!it.img){alert('Esta prenda necesita imagen');return}
  it.busy='Enviando…';render();
- try{const r=await fetch('/api/tryon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({person:S.photo,garment:it.img,name:it.name,category:it.cat||'upper_body'})});
+ try{const pp=await pad34(S.photo);it.ar=pp.ar;const r=await fetch('/api/tryon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({person:pp.data,garment:it.img,name:it.name,category:it.cat||'upper_body'})});
   const j=await r.json();if(j.error)throw new Error(j.error);
   for(let n=0;n<60;n++){it.busy='Generando… ('+(n*3)+' s)';render();await new Promise(r=>setTimeout(r,3000));
    const s=await(await fetch('/api/tryon?id='+j.id)).json();
@@ -60,7 +61,7 @@ const keep=()=>{form.name=$('#n').value;form.brand=$('#b').value;form.price=$('#
 $('#gf').onchange=e=>{keep();e.target.files[0]&&shrink(e.target.files[0],800,d=>{form.img=d;render()})};
 $('#add').onclick=()=>{keep();if(!form.name)return $('#n').focus();S.items.unshift({id:Date.now(),name:form.name,brand:form.brand,price:+form.price||0,img:form.img,url:form.url,cat:$('#c').value});form={name:'',brand:'',price:'',img:'',url:'',msg:''};save();render()};
 $('#ls').innerHTML=S.items.map(i=>`<div class="card"><div class="row">${i.img?`<img class="th" src="${esc(i.img)}" onerror="this.style.display='none'">`:''}<div style="flex:1"><b>${esc(i.name)}</b><div class="mut">${esc(i.brand)} · ${i.price.toFixed(2)} €</div>${i.url?`<a class="mut" href="${esc(i.url)}" target="_blank" rel="noopener">Ver en tienda</a>`:''}</div><button class="btn g" data-d="${i.id}">✕</button></div>
-<button class="btn" style="margin-top:8px;width:100%" data-t="${i.id}" ${i.busy?'disabled':''}>${i.busy||(i.result?'Volver a probar con IA':'Probar con IA')}</button>${i.result?`<img class="res" src="${esc(i.result)}">`:''}</div>`).join('')||'<p class="mut">Aún no hay prendas.</p>';
+<button class="btn" style="margin-top:8px;width:100%" data-t="${i.id}" ${i.busy?'disabled':''}>${i.busy||(i.result?'Volver a probar con IA':'Probar con IA')}</button>${i.result?`<div class="res" style="aspect-ratio:${i.ar||0.75};overflow:hidden"><img src="${esc(i.result)}" style="width:100%;height:100%;object-fit:cover;display:block"></div>`:''}</div>`).join('')||'<p class="mut">Aún no hay prendas.</p>';
 document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{S.items=S.items.filter(x=>x.id!=b.dataset.d);save();render()});
 document.querySelectorAll('[data-t]').forEach(b=>{if(b.dataset.t&&b.tagName==='BUTTON'&&b.classList.contains('btn')&&b.style.width)b.onclick=()=>tryon(b.dataset.t)});
 }

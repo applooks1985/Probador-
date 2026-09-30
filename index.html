@@ -28,18 +28,21 @@ const $=s=>document.querySelector(s),esc=s=>String(s||'').replace(/[&<>"]/g,c=>(
 function shrink(f,max,cb){const r=new FileReader();r.onload=()=>{const i=new Image();i.onload=()=>{const k=Math.min(1,max/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);cb(c.toDataURL('image/jpeg',.85))};i.src=r.result};r.readAsDataURL(f)}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{S.tab=b.dataset.t;render()});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms)),EMPTY={name:'',brand:'',price:'',img:'',url:'',msg:''};
-function addItem(o){const id=Date.now();S.items.unshift({id,name:o.name||'Prenda',brand:o.brand||'',price:+o.price||0,img:o.img||'',url:o.url||'',cat:['upper_body','lower_body','dresses'].includes(o.cat)?o.cat:'upper_body'});save();return id}
+async function parse(r){const t=await r.text();try{return JSON.parse(t)}catch(e){throw new Error('El servidor devolvió un error ('+r.status+'). Comprueba que el archivo está dentro de la carpeta api en GitHub.')}}
+const jf=async(u,o)=>parse(await fetch(u,o));
+function guessCat(n){const t=(n||'').toLowerCase();if(/vestido|\bmono\b|dress|jumpsuit|peto/.test(t))return'dresses';if(/pantal|vaquer|jean|short|bermuda|falda|chino|jogger|legging|trouser|pants|skirt|cargo|denim/.test(t))return'lower_body';return'upper_body'}
+function addItem(o){const id=Date.now();S.items.unshift({id,name:o.name||'Prenda',brand:o.brand||'',price:+o.price||0,img:o.img||'',url:o.url||'',cat:['upper_body','lower_body','dresses'].includes(o.cat)?o.cat:guessCat(o.name)});save();return id}
 async function extract(u){form.url=u;form.msg='Leyendo enlace…';render();
- try{const j=await(await fetch('/api/extract?url='+encodeURIComponent(u))).json();
+ try{const j=await jf('/api/extract?url='+encodeURIComponent(u));
   if(j.error)throw new Error(j.error);
   if(j.name&&j.image){const id=addItem({name:j.name,brand:j.brand,price:j.price,img:j.image,url:u});form={...EMPTY};return tryon(id)}
   form.msg='Esta tienda no permite leer el enlace. Usa "Añadir desde captura".'}
  catch(e){form.msg=e.message}render()}
 async function fromShot(file){form.msg='Leyendo captura…';render();
  try{const d=await new Promise(r=>shrink(file,900,r));
-  let j=await(await fetch('/api/vision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:d})})).json();
+  let j=await jf('/api/vision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:d})});
   if(j.error)throw new Error(j.error);
-  for(let n=0;n<20&&j.status!=='succeeded';n++){if(j.status==='failed'||j.status==='canceled')throw new Error(j.error||'La IA no pudo leer la captura');await sleep(2000);j=await(await fetch('/api/tryon?id='+j.id)).json()}
+  for(let n=0;n<20&&j.status!=='succeeded';n++){if(j.status==='failed'||j.status==='canceled')throw new Error(j.error||'La IA no pudo leer la captura');await sleep(2000);j=await jf('/api/tryon?id='+j.id)}
   if(j.status!=='succeeded')throw new Error('Tardó demasiado');
   const m=[].concat(j.output).join('').match(/\{[\s\S]*\}/);if(!m)throw new Error('No entendí la captura');
   const v=JSON.parse(m[0]);const id=addItem({name:v.name,brand:v.brand,price:v.price,img:d,cat:v.category});form={...EMPTY};render();await tryon(id)}
@@ -50,9 +53,9 @@ async function tryon(id){const it=S.items.find(x=>x.id==id);
  if(!it.img){alert('Esta prenda necesita imagen');return}
  it.busy='Enviando…';render();
  try{const pp=await pad34(S.photo);it.ar=pp.ar;const r=await fetch('/api/tryon',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({person:pp.data,garment:it.img,name:it.name,category:it.cat||'upper_body'})});
-  const j=await r.json();if(j.error)throw new Error(j.error);
+  const j=await parse(r);if(j.error)throw new Error(j.error);
   for(let n=0;n<60;n++){it.busy='Generando… ('+(n*3)+' s)';render();await new Promise(r=>setTimeout(r,3000));
-   const s=await(await fetch('/api/tryon?id='+j.id)).json();
+   const s=await jf('/api/tryon?id='+j.id);
    if(s.status==='succeeded'){it.result=[].concat(s.output)[0];break}
    if(s.status==='failed'||s.status==='canceled')throw new Error(s.error||'La IA no pudo generar la imagen')}
   if(!it.result)throw new Error('Tardó demasiado')}
@@ -73,7 +76,9 @@ const keep=()=>{form.name=$('#n').value;form.brand=$('#b').value;form.price=$('#
 $('#gf').onchange=e=>{keep();e.target.files[0]&&shrink(e.target.files[0],800,d=>{form.img=d;render()})};
 $('#add').onclick=()=>{keep();if(!form.name)return $('#n').focus();S.items.unshift({id:Date.now(),name:form.name,brand:form.brand,price:+form.price||0,img:form.img,url:form.url,cat:$('#c').value});form={...EMPTY};save();render()};
 $('#ls').innerHTML=S.items.map(i=>`<div class="card"><div class="row">${i.img?`<img class="th" src="${esc(i.img)}" onerror="this.style.display='none'">`:''}<div style="flex:1"><b>${esc(i.name)}</b><div class="mut">${esc(i.brand)} · ${i.price.toFixed(2)} €</div>${i.url?`<a class="mut" href="${esc(i.url)}" target="_blank" rel="noopener">Ver en tienda</a>`:''}</div><button class="btn g" data-d="${i.id}">✕</button></div>
+<select data-c="${i.id}" style="margin:8px 0 0"><option value="upper_body"${i.cat=='upper_body'?' selected':''}>Parte de arriba</option><option value="lower_body"${i.cat=='lower_body'?' selected':''}>Parte de abajo</option><option value="dresses"${i.cat=='dresses'?' selected':''}>Vestido / conjunto</option></select>
 <button class="btn" style="margin-top:8px;width:100%" data-t="${i.id}" ${i.busy?'disabled':''}>${i.busy||(i.result?'Volver a probar con IA':'Probar con IA')}</button>${i.result?`<div class="res" style="aspect-ratio:${i.ar||0.75};overflow:hidden"><img src="${esc(i.result)}" style="width:100%;height:100%;object-fit:cover;display:block"></div>`:''}</div>`).join('')||'<p class="mut">Aún no hay prendas.</p>';
+document.querySelectorAll('[data-c]').forEach(e=>e.onchange=()=>{S.items.find(x=>x.id==e.dataset.c).cat=e.value;save()});
 document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{S.items=S.items.filter(x=>x.id!=b.dataset.d);save();render()});
 document.querySelectorAll('[data-t]').forEach(b=>{if(b.dataset.t&&b.tagName==='BUTTON'&&b.classList.contains('btn')&&b.style.width)b.onclick=()=>tryon(b.dataset.t)});
 }

@@ -27,12 +27,23 @@ const save=()=>{try{localStorage.setItem('probador',JSON.stringify(S))}catch(e){
 const $=s=>document.querySelector(s),esc=s=>String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function shrink(f,max,cb){const r=new FileReader();r.onload=()=>{const i=new Image();i.onload=()=>{const k=Math.min(1,max/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);cb(c.toDataURL('image/jpeg',.85))};i.src=r.result};r.readAsDataURL(f)}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{S.tab=b.dataset.t;render()});
+const sleep=ms=>new Promise(r=>setTimeout(r,ms)),EMPTY={name:'',brand:'',price:'',img:'',url:'',msg:''};
+function addItem(o){const id=Date.now();S.items.unshift({id,name:o.name||'Prenda',brand:o.brand||'',price:+o.price||0,img:o.img||'',url:o.url||'',cat:['upper_body','lower_body','dresses'].includes(o.cat)?o.cat:'upper_body'});save();return id}
 async function extract(u){form.url=u;form.msg='Leyendo enlace…';render();
  try{const j=await(await fetch('/api/extract?url='+encodeURIComponent(u))).json();
   if(j.error)throw new Error(j.error);
-  form.name=j.name||'';form.brand=j.brand||'';form.price=j.price||'';form.img=j.image||'';
-  form.msg=j.ok?'Datos leídos. Revísalos y pulsa Añadir.':'No pude leer datos de esta tienda. Rellénalos a mano.'}
+  if(j.name&&j.image){const id=addItem({name:j.name,brand:j.brand,price:j.price,img:j.image,url:u});form={...EMPTY};return tryon(id)}
+  form.msg='Esta tienda no permite leer el enlace. Usa "Añadir desde captura".'}
  catch(e){form.msg=e.message}render()}
+async function fromShot(file){form.msg='Leyendo captura…';render();
+ try{const d=await new Promise(r=>shrink(file,900,r));
+  let j=await(await fetch('/api/vision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image:d})})).json();
+  if(j.error)throw new Error(j.error);
+  for(let n=0;n<20&&j.status!=='succeeded';n++){if(j.status==='failed'||j.status==='canceled')throw new Error(j.error||'La IA no pudo leer la captura');await sleep(2000);j=await(await fetch('/api/tryon?id='+j.id)).json()}
+  if(j.status!=='succeeded')throw new Error('Tardó demasiado');
+  const m=[].concat(j.output).join('').match(/\{[\s\S]*\}/);if(!m)throw new Error('No entendí la captura');
+  const v=JSON.parse(m[0]);const id=addItem({name:v.name,brand:v.brand,price:v.price,img:d,cat:v.category});form={...EMPTY};render();await tryon(id)}
+ catch(e){form.msg=e.message;render()}}
 function pad34(src){return new Promise(res=>{const i=new Image();i.onload=()=>{const W=768,H=1024,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');const k=Math.max(W/i.width,H/i.height);x.filter='blur(25px)';x.drawImage(i,(W-i.width*k)/2,(H-i.height*k)/2,i.width*k,i.height*k);x.filter='none';const f=Math.min(W/i.width,H/i.height),w=i.width*f,h=i.height*f;x.drawImage(i,(W-w)/2,(H-h)/2,w,h);res({data:c.toDataURL('image/jpeg',.92),ar:i.width/i.height})};i.src=src})}
 async function tryon(id){const it=S.items.find(x=>x.id==id);
  if(!S.photo){alert('Sube primero tu foto');S.tab='foto';return render()}
@@ -52,19 +63,21 @@ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dat
 if(S.tab==='foto'){
  a.innerHTML=`<h1>Tu foto de pie</h1><div class="card"><p class="mut">De frente, cuerpo entero y fondo liso. Se envía a la IA solo al probar una prenda.</p>${S.photo?`<img src="${S.photo}" style="width:100%;border-radius:10px;margin-bottom:8px">`:''}<label class="btn lb">${S.photo?'Cambiar foto':'Subir foto'}<input type="file" id="pf" accept="image/*"></label></div>`;
  $('#pf').onchange=e=>e.target.files[0]&&shrink(e.target.files[0],900,d=>{S.photo=d;save();render()});return}
-a.innerHTML=`<h1>Prendas</h1><div class="card"><div class="row"><input type="text" id="u" placeholder="Pega el enlace de la prenda" value="${esc(form.url)}"><button class="btn" id="rd">Leer</button></div><p class="mut" id="ms">${esc(form.msg)}</p>
-<input type="text" id="n" placeholder="Prenda" value="${esc(form.name)}"><input type="text" id="b" placeholder="Marca" value="${esc(form.brand)}"><input type="number" id="p" placeholder="Precio €" step="0.01" value="${esc(form.price)}">
+a.innerHTML=`<h1>Prendas</h1><div class="card"><label class="btn lb" style="display:block;text-align:center;margin-bottom:10px">📷 Añadir desde captura<input type="file" id="sh" accept="image/*"></label><div class="row"><input type="text" id="u" placeholder="Pega el enlace de la prenda" value="${esc(form.url)}"><button class="btn" id="rd">Leer</button></div><p class="mut" id="ms">${esc(form.msg)}</p>
+<details ${form.name||form.img?'open':''}><summary class="mut" style="margin-bottom:8px">Rellenar a mano</summary><input type="text" id="n" placeholder="Prenda" value="${esc(form.name)}"><input type="text" id="b" placeholder="Marca" value="${esc(form.brand)}"><input type="number" id="p" placeholder="Precio €" step="0.01" value="${esc(form.price)}">
 <select id="c"><option value="upper_body">Parte de arriba</option><option value="lower_body">Parte de abajo</option><option value="dresses">Vestido / conjunto</option></select>
-${form.img?`<img class="th" src="${esc(form.img)}" onerror="this.style.display='none'"> `:''}<label class="btn g lb">${form.img?'Cambiar imagen':'Subir imagen de la prenda'}<input type="file" id="gf" accept="image/*"></label> <button class="btn" id="add">Añadir</button></div><div id="ls"></div>`;
+${form.img?`<img class="th" src="${esc(form.img)}" onerror="this.style.display='none'"> `:''}<label class="btn g lb">${form.img?'Cambiar imagen':'Subir imagen de la prenda'}<input type="file" id="gf" accept="image/*"></label> <button class="btn" id="add">Añadir</button></details></div><div id="ls"></div>`;
+$('#sh').onchange=e=>e.target.files[0]&&fromShot(e.target.files[0]);
 $('#rd').onclick=()=>$('#u').value.trim()&&extract($('#u').value.trim());
 const keep=()=>{form.name=$('#n').value;form.brand=$('#b').value;form.price=$('#p').value;form.url=$('#u').value};
 $('#gf').onchange=e=>{keep();e.target.files[0]&&shrink(e.target.files[0],800,d=>{form.img=d;render()})};
-$('#add').onclick=()=>{keep();if(!form.name)return $('#n').focus();S.items.unshift({id:Date.now(),name:form.name,brand:form.brand,price:+form.price||0,img:form.img,url:form.url,cat:$('#c').value});form={name:'',brand:'',price:'',img:'',url:'',msg:''};save();render()};
+$('#add').onclick=()=>{keep();if(!form.name)return $('#n').focus();S.items.unshift({id:Date.now(),name:form.name,brand:form.brand,price:+form.price||0,img:form.img,url:form.url,cat:$('#c').value});form={...EMPTY};save();render()};
 $('#ls').innerHTML=S.items.map(i=>`<div class="card"><div class="row">${i.img?`<img class="th" src="${esc(i.img)}" onerror="this.style.display='none'">`:''}<div style="flex:1"><b>${esc(i.name)}</b><div class="mut">${esc(i.brand)} · ${i.price.toFixed(2)} €</div>${i.url?`<a class="mut" href="${esc(i.url)}" target="_blank" rel="noopener">Ver en tienda</a>`:''}</div><button class="btn g" data-d="${i.id}">✕</button></div>
 <button class="btn" style="margin-top:8px;width:100%" data-t="${i.id}" ${i.busy?'disabled':''}>${i.busy||(i.result?'Volver a probar con IA':'Probar con IA')}</button>${i.result?`<div class="res" style="aspect-ratio:${i.ar||0.75};overflow:hidden"><img src="${esc(i.result)}" style="width:100%;height:100%;object-fit:cover;display:block"></div>`:''}</div>`).join('')||'<p class="mut">Aún no hay prendas.</p>';
 document.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{S.items=S.items.filter(x=>x.id!=b.dataset.d);save();render()});
 document.querySelectorAll('[data-t]').forEach(b=>{if(b.dataset.t&&b.tagName==='BUTTON'&&b.classList.contains('btn')&&b.style.width)b.onclick=()=>tryon(b.dataset.t)});
 }
 const q=new URLSearchParams(location.search),sh=q.get('url')||(q.get('text')||'').match(/https?:\/\/\S+/)?.[0];
-if(sh){S.tab='lista';history.replaceState(null,'','/');render();extract(sh)}else render();
+if(q.get('shared')){S.tab='lista';history.replaceState(null,'','/');render();(async()=>{try{const c=await caches.open('shared'),r=await c.match('/shared-image');if(r){const b=await r.blob();await c.delete('/shared-image');fromShot(new File([b],'captura.jpg',{type:b.type}))}}catch(e){form.msg='No pude recibir la captura';render()}})()}
+else if(sh){S.tab='lista';history.replaceState(null,'','/');render();extract(sh)}else render();
 </script></body></html>
